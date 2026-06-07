@@ -1,0 +1,46 @@
+name: Deploy to AKS
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Log in to Azure
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    # Log in to Azure Container Registry
+    - name: ACR Login
+      run: az acr login --name ${{ secrets.ACR_NAME }}
+
+    # Build and push Docker image
+    - name: Build and Push Image
+      run: |
+        IMAGE_TAG=${{ secrets.ACR_NAME }}.azurecr.io/my-app:${{ github.sha }}
+        docker build -t $IMAGE_TAG .
+        docker push $IMAGE_TAG
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    # Set up kubectl
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+
+    # Get AKS credentials
+    - name: Get AKS Credentials
+      run: az aks get-credentials --resource-group ${{ secrets.AKS_RG }} --name ${{ secrets.AKS_NAME }} --overwrite-existing
+
+    # Deploy to AKS
+    - name: Deploy to AKS
+      run: |
+        kubectl set image deployment/my-app my-app=$IMAGE_TAG -n default
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
